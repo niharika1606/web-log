@@ -145,125 +145,264 @@ class FPTree:
         for child in self.root.children.values():
             count += child.count
         return count
-
-    def print_tree_detailed(self, node=None, level=0, prefix="", is_last=True):
-        """Print detailed FP-tree structure with better visualization"""
-        if node is None:
-            node = self.root
-            print("🎯 DETAILED FP-TREE STRUCTURE")
-            print("=" * 80)
-            print("Root (count: 1)")
+class UserRecommendationSystem:
+    def __init__(self, frequent_itemsets, total_transactions):
+        self.frequent_itemsets = frequent_itemsets
+        self.total_transactions = total_transactions
+        self.page_descriptions = {
+            '1': 'Home Page',
+            'fontawesome-webfont': 'Font Library',
+            'contestproblem': 'Contest Problems',
+            'login': 'Login Page',
+            'profile': 'User Profile',
+            'details': 'Problem Details',
+            'description': 'Problem Description',
+            'contestsubmission': 'Contest Submissions',
+            'archive': 'Problem Archive',
+            'standings': 'Contest Standings',
+            'showcode': 'View Source Code',
+            'submit': 'Submit Solution'
+        }
         
-        # Create connector symbols
-        if level > 0:
-            connector = "└── " if is_last else "├── "
-            print(prefix + connector + f"{node.item}({node.count})")
-            new_prefix = prefix + ("    " if is_last else "│   ")
-        else:
-            new_prefix = prefix
+        # Build enhanced pattern database
+        self.pattern_database = self._build_enhanced_pattern_database()
+        self.global_popular_pages = self._get_global_popular_pages()
+    
+    def _build_enhanced_pattern_database(self):
+        """Build enhanced pattern database with better pattern detection"""
+        pattern_db = defaultdict(list)
         
-        # Print children
-        children_items = list(node.children.items())
-        for i, (child_item, child_node) in enumerate(children_items):
-            is_last_child = (i == len(children_items) - 1)
-            self.print_tree_detailed(child_node, level + 1, new_prefix, is_last_child)
-
-    def print_tree_compact(self):
-        """Print compact FP-tree representation"""
-        print("\n📊 COMPACT FP-TREE REPRESENTATION")
-        print("=" * 60)
+        for itemset, support in self.frequent_itemsets:
+            if len(itemset) >= 1:  # Include single-page patterns for context
+                support_pct = (support / self.total_transactions) * 100
+                
+                # For multi-page patterns, extract sequences
+                if len(itemset) > 1:
+                    for i in range(len(itemset)):
+                        current_page = itemset[i]
+                        # What comes after this page
+                        if i < len(itemset) - 1:
+                            next_page = itemset[i + 1]
+                            pattern_db[current_page].append(('next', next_page, support_pct))
+                        # What comes before this page
+                        if i > 0:
+                            prev_page = itemset[i - 1]
+                            pattern_db[current_page].append(('prev', prev_page, support_pct))
+                        # All related pages in this pattern
+                        for j, related_page in enumerate(itemset):
+                            if j != i:
+                                pattern_db[current_page].append(('related', related_page, support_pct))
         
-        def print_node_compact(node, level=0):
-            indent = "  " * level
-            if node.item is None:
-                print(f"{indent}ROOT")
-            else:
-                print(f"{indent}├─ {node.item} (count: {node.count})")
+        # Sort and clean the pattern database
+        for page in pattern_db:
+            # Remove duplicates and sort by support
+            unique_patterns = {}
+            for pattern_type, target_page, support in pattern_db[page]:
+                key = (pattern_type, target_page)
+                if key not in unique_patterns or support > unique_patterns[key]:
+                    unique_patterns[key] = support
             
-            for child in node.children.values():
-                print_node_compact(child, level + 1)
+            # Convert back to list and sort
+            pattern_db[page] = [(pt, tp, sup) for (pt, tp), sup in unique_patterns.items()]
+            pattern_db[page].sort(key=lambda x: x[2], reverse=True)
         
-        print_node_compact(self.root)
+        return pattern_db
+    
+    def _get_global_popular_pages(self):
+        """Get globally popular pages as fallback recommendations"""
+        page_support = defaultdict(float)
+        
+        for itemset, support in self.frequent_itemsets:
+            support_pct = (support / self.total_transactions) * 100
+            for page in itemset:
+                page_support[page] = max(page_support[page], support_pct)
+        
+        return sorted(page_support.items(), key=lambda x: x[1], reverse=True)
+    
+    def get_next_page_recommendations(self, current_page, top_n=5):
+        """Get enhanced next page recommendations"""
+        recommendations = []
+        
+        # Get direct next page patterns
+        if current_page in self.pattern_database:
+            next_pages = [(page, sup) for typ, page, sup in self.pattern_database[current_page] 
+                         if typ == 'next']
+            recommendations.extend(next_pages)
+        
+        # If no direct patterns, use related pages as potential next steps
+        if not recommendations and current_page in self.pattern_database:
+            related_pages = [(page, sup) for typ, page, sup in self.pattern_database[current_page] 
+                           if typ == 'related']
+            recommendations.extend(related_pages[:top_n])
+        
+        # Fallback to globally popular pages
+        if not recommendations:
+            recommendations = [(page, sup) for page, sup in self.global_popular_pages 
+                             if page != current_page][:top_n]
+        
+        # Remove duplicates and return top N
+        unique_recs = {}
+        for page, support in recommendations:
+            if page not in unique_recs or support > unique_recs[page]:
+                unique_recs[page] = support
+        
+        return sorted(unique_recs.items(), key=lambda x: x[1], reverse=True)[:top_n]
+    
+    def get_related_pages(self, current_page, top_n=5):
+        """Get enhanced related page recommendations"""
+        related = []
+        
+        if current_page in self.pattern_database:
+            # Get all related pages from patterns
+            for typ, page, support in self.pattern_database[current_page]:
+                if typ in ['related', 'prev', 'next'] and page != current_page:
+                    related.append((page, support))
+        
+        # Remove duplicates and sort
+        unique_related = {}
+        for page, support in related:
+            if page not in unique_related or support > unique_related[page]:
+                unique_related[page] = support
+        
+        results = sorted(unique_related.items(), key=lambda x: x[1], reverse=True)
+        
+        # Fallback if no related pages found
+        if not results:
+            results = [(page, sup) for page, sup in self.global_popular_pages 
+                      if page != current_page][:top_n]
+        
+        return results[:top_n]
+    
+    def get_contextual_recommendations(self, current_page, top_n=3):
+        """Get contextual recommendations based on page type"""
+        contextual_map = {
+            'archive': ['contestproblem', 'details', 'description', 'standings'],
+            'contestproblem': ['details', 'description', 'submit', 'archive'],
+            'details': ['description', 'submit', 'contestproblem'],
+            'description': ['submit', 'contestsubmission', 'showcode'],
+            'submit': ['contestsubmission', 'showcode', 'standings'],
+            'login': ['1', 'profile', 'contestproblem'],
+            'profile': ['contestsubmission', 'standings', 'archive'],
+            '1': ['contestproblem', 'archive', 'standings', 'login']
+        }
+        
+        if current_page in contextual_map:
+            contextual_pages = contextual_map[current_page]
+            # Enhance with actual support data if available
+            enhanced_recs = []
+            for page in contextual_pages:
+                support = self._get_support_for_page(page)
+                enhanced_recs.append((page, support))
+            return sorted(enhanced_recs, key=lambda x: x[1], reverse=True)[:top_n]
+        
+        return []
+    
+    def _get_support_for_page(self, page):
+        """Get support percentage for a specific page"""
+        for itemset, support in self.frequent_itemsets:
+            if page in itemset:
+                return (support / self.total_transactions) * 100
+        return 0.0
+    
+    def get_popular_flows(self, min_support=3.0):
+        """Get popular user navigation flows"""
+        popular_flows = []
+        for itemset, support in self.frequent_itemsets:
+            if len(itemset) > 1:
+                support_pct = (support / self.total_transactions) * 100
+                if support_pct >= min_support:
+                    flow_description = " → ".join([self.page_descriptions.get(page, page) for page in itemset])
+                    popular_flows.append((flow_description, support_pct))
+        
+        return sorted(popular_flows, key=lambda x: x[1], reverse=True)
+    
+    def describe_page(self, page):
+        """Get description for a page"""
+        return self.page_descriptions.get(page, f"Unknown Page: {page}")
+    
+    def get_all_available_pages(self):
+        """Get list of all available pages from frequent itemsets"""
+        all_pages = set()
+        for itemset, _ in self.frequent_itemsets:
+            for page in itemset:
+                all_pages.add(page)
+        return sorted(list(all_pages))
 
-    def print_header_table(self):
-        """Print the header table structure"""
-        print("\n📋 HEADER TABLE")
-        print("=" * 50)
-        print(f"{'Item':<20} {'Frequency':<12} {'Node Chain'}")
-        print("-" * 50)
-        
-        for item, (freq, first_node) in sorted(self.header_table.items(), 
-                                             key=lambda x: x[1][0], reverse=True):
-            node_chain = []
-            current = first_node
-            while current:
-                node_chain.append(f"{current.item}({current.count})")
-                current = current.next
-            
-            chain_str = " → ".join(node_chain) if node_chain else "None"
-            print(f"{item:<20} {freq:<12} {chain_str}")
+def display_recommendations(recommendation_system, current_page):
+    """Display enhanced recommendations for the current page"""
+    print(f"\n🎯 RECOMMENDATIONS for: {recommendation_system.describe_page(current_page)}")
+    print("="*50)
+    
+    # Get next page recommendations
+    next_recs = recommendation_system.get_next_page_recommendations(current_page)
+    if next_recs:
+        print("\n📈 NEXT PAGE SUGGESTIONS (Based on user patterns):")
+        for i, (page, support) in enumerate(next_recs, 1):
+            description = recommendation_system.describe_page(page)
+            print(f"  {i}. {description:<25} - {support:.1f}% of users")
+    else:
+        print("\n📈 No specific next page patterns found for this page.")
+    
+    # Get related pages
+    related_recs = recommendation_system.get_related_pages(current_page)
+    if related_recs:
+        print("\n🔗 RELATED PAGES (Frequently visited together):")
+        for i, (page, support) in enumerate(related_recs, 1):
+            description = recommendation_system.describe_page(page)
+            print(f"  {i}. {description:<25} - {support:.1f}% co-occurrence")
+    
+    # Get contextual recommendations
+    contextual_recs = recommendation_system.get_contextual_recommendations(current_page)
+    if contextual_recs:
+        print("\n💡 CONTEXTUAL SUGGESTIONS (Based on page type):")
+        for i, (page, support) in enumerate(contextual_recs, 1):
+            description = recommendation_system.describe_page(page)
+            support_text = f" - {support:.1f}% support" if support > 0 else ""
+            print(f"  {i}. {description:<25}{support_text}")
+    
+    # Show user message if no recommendations
+    if not next_recs and not related_recs and not contextual_recs:
+        print("\n🤔 No specific patterns found for this page.")
+        print("   Try exploring popular user flows to see common navigation paths!")
+    
+    print("\n" + "-"*50)
 
-    def print_tree_statistics(self):
-        """Print statistics about the FP-tree"""
-        print("\n📈 FP-TREE STATISTICS")
-        print("=" * 40)
-        
-        total_nodes = self._count_nodes(self.root)
-        max_depth = self._get_max_depth(self.root)
-        avg_branching = self._get_avg_branching(self.root)
-        
-        print(f"Total nodes: {total_nodes}")
-        print(f"Maximum depth: {max_depth}")
-        print(f"Average branching factor: {avg_branching:.2f}")
-        print(f"Frequent items in header: {len(self.header_table)}")
-        print(f"Root children: {len(self.root.children)}")
+def display_popular_flows(recommendation_system):
+    """Display popular user navigation flows"""
+    print(f"\n🏆 POPULAR USER NAVIGATION FLOWS")
+    print("="*60)
+    
+    popular_flows = recommendation_system.get_popular_flows(min_support=2.0)  # Lower threshold
+    
+    if popular_flows:
+        print("Common user navigation patterns:")
+        for i, (flow, support) in enumerate(popular_flows, 1):
+            print(f"{i:2d}. {flow}")
+            print(f"    📊 Used by {support:.1f}% of users")
+            print()
+    else:
+        print("No popular flows found. Try lowering the support threshold.")
+        print("\nMost frequent individual pages:")
+        for i, (page, support) in enumerate(recommendation_system.global_popular_pages[:10], 1):
+            desc = recommendation_system.describe_page(page)
+            print(f"  {i}. {desc:<25} - {support:.1f}%")
 
-    def _count_nodes(self, node):
-        """Count total nodes in the tree"""
-        if node is None:
-            return 0
-        count = 1
-        for child in node.children.values():
-            count += self._count_nodes(child)
-        return count
-
-    def _get_max_depth(self, node):
-        """Get maximum depth of the tree"""
-        if not node.children:
-            return 0
-        return 1 + max(self._get_max_depth(child) for child in node.children.values())
-
-    def _get_avg_branching(self, node):
-        """Calculate average branching factor"""
-        if not node.children:
-            return 0
-        
-        total_children = 0
-        total_nodes_with_children = 0
-        
-        def traverse(n):
-            nonlocal total_children, total_nodes_with_children
-            if n.children:
-                total_children += len(n.children)
-                total_nodes_with_children += 1
-                for child in n.children.values():
-                    traverse(child)
-        
-        traverse(node)
-        return total_children / total_nodes_with_children if total_nodes_with_children > 0 else 0
-
-    def print_complete_tree_analysis(self):
-        """Print complete tree analysis with all visualizations"""
-        print("\n" + "🌳" * 30)
-        print("COMPLETE FP-TREE ANALYSIS")
-        print("🌳" * 30)
-        
-        self.print_tree_statistics()
-        self.print_header_table()
-        print("\n")
-        self.print_tree_detailed()
-        print("\n")
-        self.print_tree_compact()
+# Update the menu display function
+def display_recommendation_menu(recommendation_system):
+    """Display the recommendation menu"""
+    print("\n" + "="*60)
+    print("        CODING CONTEST PLATFORM RECOMMENDATION SYSTEM")
+    print("="*60)
+    
+    available_pages = recommendation_system.get_all_available_pages()
+    print("Available Pages:")
+    for i, page in enumerate(available_pages, 1):
+        description = recommendation_system.describe_page(page)
+        print(f"  {i:2d}. {page:<20} - {description}")
+    
+    print(f"  {len(available_pages)+1:2d}. View Popular User Flows")
+    print(f"  {len(available_pages)+2:2d}. Exit")
+    print("-"*60)
 
 def parse_web_log_data(file_path):
     """Parse the web log data from CSV"""
@@ -275,8 +414,6 @@ def parse_web_log_data(file_path):
     # Display basic info about the dataset
     print(f"Dataset shape: {df.shape}")
     print(f"Columns: {df.columns.tolist()}")
-    print("\nFirst few rows:")
-    print(df.head())
     
     # Check for column names and clean them
     df.columns = df.columns.str.strip()
@@ -298,7 +435,7 @@ def parse_web_log_data(file_path):
         df = df.rename(columns=column_mapping)
         print(f"Renamed columns: {column_mapping}")
     
-    print(f"\nFinal columns: {df.columns.tolist()}")
+    print(f"Final columns: {df.columns.tolist()}")
     return df
 
 def extract_page_from_url(url):
@@ -421,9 +558,6 @@ def analyze_frequent_patterns(transactions, min_support=0.01):
     
     print(f"Tree building time: {build_time:.2f} seconds")
     
-    # Print complete tree analysis
-    fp_tree.print_complete_tree_analysis()
-    
     # Mine frequent itemsets
     start_time = time.time()
     frequent_itemsets = fp_tree.mine_frequent_itemsets()
@@ -434,27 +568,117 @@ def analyze_frequent_patterns(transactions, min_support=0.01):
     
     return fp_tree, frequent_itemsets
 
+def display_recommendation_menu(recommendation_system):
+    """Display the recommendation menu"""
+    print("\n" + "="*60)
+    print("        CODING CONTEST PLATFORM RECOMMENDATION SYSTEM")
+    print("="*60)
+    
+    available_pages = recommendation_system.get_all_available_pages()
+    print("Available Pages:")
+    for i, page in enumerate(available_pages, 1):
+        description = recommendation_system.describe_page(page)
+        print(f"  {i:2d}. {page:<20} - {description}")
+    
+    print(f"  {len(available_pages)+1:2d}. View Popular User Flows")
+    print(f"  {len(available_pages)+2:2d}. Exit")
+    print("-"*60)
+
+def get_user_choice(recommendation_system):
+    """Get user's current page choice"""
+    available_pages = recommendation_system.get_all_available_pages()
+    
+    while True:
+        try:
+            choice = input("\nEnter your current page number: ").strip()
+            
+            if choice.isdigit():
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(available_pages):
+                    return available_pages[choice_num - 1]
+                elif choice_num == len(available_pages) + 1:
+                    return 'popular_flows'
+                elif choice_num == len(available_pages) + 2:
+                    return 'exit'
+            
+            print(f"Invalid choice! Please enter a number between 1-{len(available_pages)+2}")
+        except KeyboardInterrupt:
+            return 'exit'
+        except Exception as e:
+            print(f"Error: {e}. Please try again.")
+
+def display_recommendations(recommendation_system, current_page):
+    """Display recommendations for the current page"""
+    print(f"\n🎯 RECOMMENDATIONS for: {recommendation_system.describe_page(current_page)}")
+    print("="*50)
+    
+    # Get next page recommendations
+    next_recs = recommendation_system.get_next_page_recommendations(current_page)
+    if next_recs:
+        print("\n📈 NEXT PAGE SUGGESTIONS (Based on user patterns):")
+        for i, (page, support) in enumerate(next_recs, 1):
+            description = recommendation_system.describe_page(page)
+            print(f"  {i}. {description:<25} - {support:.1f}% of users")
+    else:
+        print("\n📈 No specific next page patterns found for this page.")
+    
+    # Get related pages
+    related_recs = recommendation_system.get_related_pages(current_page)
+    if related_recs:
+        print("\n🔗 RELATED PAGES (Frequently visited together):")
+        for i, (page, support) in enumerate(related_recs, 1):
+            description = recommendation_system.describe_page(page)
+            print(f"  {i}. {description:<25} - {support:.1f}% co-occurrence")
+    
+    print("\n" + "-"*50)
+
+def display_popular_flows(recommendation_system):
+    """Display popular user navigation flows"""
+    print(f"\n🏆 POPULAR USER NAVIGATION FLOWS")
+    print("="*60)
+    
+    popular_flows = recommendation_system.get_popular_flows(min_support=3.0)
+    if popular_flows:
+        for i, (flow, support) in enumerate(popular_flows, 1):
+            print(f"{i:2d}. {flow}")
+            print(f"    📊 Used by {support:.1f}% of users")
+            print()
+    else:
+        print("No popular flows found with the current support threshold.")
+
+def run_recommendation_engine(frequent_itemsets, total_transactions):
+    """Run the interactive recommendation engine"""
+    recommendation_system = UserRecommendationSystem(frequent_itemsets, total_transactions)
+    
+    print("\n" + "⭐" * 20)
+    print("RECOMMENDATION ENGINE STARTED!")
+    print("⭐" * 20)
+    
+    while True:
+        display_recommendation_menu(recommendation_system)
+        choice = get_user_choice(recommendation_system)
+        
+        if choice == 'exit':
+            print("\nThank you for using the Recommendation System! Goodbye! 👋")
+            break
+        elif choice == 'popular_flows':
+            display_popular_flows(recommendation_system)
+        else:
+            display_recommendations(recommendation_system, choice)
+        
+        input("\nPress Enter to continue...")
+
 def main():
-    """Main function to run complete FP-tree analysis"""
+    """Main function to run complete FP-tree analysis and recommendations"""
     
     # Load and parse the web log data
-    file_path = r"C:\Users\Niharika\Desktop\ml-mimi\weblog.csv"  # Update path if needed
+    file_path = r"C:\Users\Niharika\Desktop\ml-mimi\web-log\weblog.csv"
     
     try:
         df = parse_web_log_data(file_path)
     except FileNotFoundError:
-        print(f"File {file_path} not found. Creating sample data for demonstration...")
-        # Create sample data for demonstration
-        sample_data = {
-            'IP': ['10.128.2.1', '10.128.2.1', '10.128.2.1', '10.131.2.1', '10.130.2.1'],
-            'Time': ['[29/Nov/2017:06:58:55', '[29/Nov/2017:06:59:02', '[29/Nov/2017:06:59:03', 
-                    '[29/Nov/2017:06:59:04', '[29/Nov/2017:06:59:06'],
-            'URL': ['GET /login.php HTTP/1.1', 'POST /process.php HTTP/1.1', 'GET /home.php HTTP/1.1',
-                   'GET /js/vendor/moment.min.js HTTP/1.1', 'GET /bootstrap-3.3.7/js/bootstrap.js HTTP/1.1'],
-            'Status': [200, 302, 200, 200, 200]
-        }
-        df = pd.DataFrame(sample_data)
-        print("Using sample data for demonstration")
+        print(f"File {file_path} not found!")
+        return
     
     # Preprocess data
     transactions, processed_df, sessions_df = preprocess_web_log_data(df)
@@ -464,7 +688,7 @@ def main():
         return
     
     # Run FP-tree analysis
-    min_support = 0.03  # Adjust based on data size
+    min_support = 0.02  # Adjust based on data size
     
     print(f"\n{'='*70}")
     print(f"Analysis with Minimum Support: {min_support*100}%")
@@ -483,6 +707,10 @@ def main():
         filename = f'frequent_patterns_support_{min_support}.csv'
         results_df.to_csv(filename, index=False)
         print(f"\nResults saved to: {filename}")
+        
+        # Start interactive recommendation engine
+        print(f"\nStarting Recommendation Engine with {len(frequent_itemsets)} patterns...")
+        run_recommendation_engine(frequent_itemsets, len(transactions))
 
 if __name__ == "__main__":
     main()
