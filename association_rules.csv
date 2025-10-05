@@ -1,0 +1,10 @@
+antecedents,consequents,support,confidence,lift
+frozenset({'description'}),frozenset({'archive'}),0.06567992599444958,0.8160919540229884,4.594767720306513
+frozenset({'allsubmission'}),frozenset({'archive'}),0.06753006475485661,0.6186440677966102,3.4830949858757063
+frozenset({'standings'}),frozenset({'contestsubmission'}),0.06105457909343201,0.6055045871559633,4.51414109459032
+frozenset({'contestsubmission'}),frozenset({'details'}),0.07770582793709528,0.5793103448275863,3.4220463538722443
+frozenset({'standings'}),frozenset({'details'}),0.05365402405180388,0.5321100917431192,3.1432295583295726
+frozenset({'img'}),frozenset({'fonts'}),0.08048103607770583,0.4943181818181819,2.2452014896867842
+frozenset({'sign'}),frozenset({'fonts'}),0.05180388529139685,0.46280991735537186,2.1020904229460378
+frozenset({'details'}),frozenset({'contestsubmission'}),0.07770582793709528,0.45901639344262296,3.4220463538722443
+frozenset({'contestsubmission'}),frozenset({'standings'}),0.06105457909343201,0.45517241379310347,4.51414109459032
